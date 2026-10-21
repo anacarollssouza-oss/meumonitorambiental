@@ -1,0 +1,6 @@
+meu-monitor-ambiental/
+├── .github/
+│   └── workflows/
+│       └── monitor.yml
+├── requirements.txt
+└── main.py
