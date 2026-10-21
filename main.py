@@ -15,7 +15,7 @@ def buscar_publicacoes_dou():
     
     palavras_chave = [
         "MEIO AMBIENTE", "IBAMA", "ICMBIO", "CONAMA", "LICENCIAMENTO", 
-        "RESOLUÇÃO", "PORTARIA", "INSTRUÇÃO NORMATIVA", "OUTORGA", "EFFLUENTE"
+        "RESOLUÇÃO", "PORTARIA", "INSTRUÇÃO NORMATIVA", "OUTORGA", "EFLUENTE"
     ]
     
     artigos_relevantes = []
@@ -63,7 +63,7 @@ def analisar_com_gemini(texto_publicacoes):
 
 def enviar_telegram(mensagem):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        raise ValueError("TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não foram encontrados nas Secrets.")
+        raise ValueError("TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não definidos nas Secrets.")
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -71,15 +71,19 @@ def enviar_telegram(mensagem):
         "text": mensagem,
         "disable_web_page_preview": True
     }
-    
     response = requests.post(url, json=payload)
     resultado = response.json()
     
     print(f"Status do envio ao Telegram: {response.status_code}")
     print(f"Resposta do Telegram: {resultado}")
     
-  if __name__ == "__main__":
-    # Teste direto de envio para validar as Secrets e o Telegram
+    if not resultado.get("ok"):
+        raise Exception(f"Erro na entrega do Telegram: {resultado.get('description')}")
+        
+    return response.status_code
+
+if __name__ == "__main__":
+    # Teste de conexão direta
     mensagem_teste = "🚀 Teste de conexão: A automação do GitHub Actions está funcionando perfeitamente!"
     enviar_telegram(mensagem_teste)
-    print("Mensagem de teste enviada!")
+    print("Mensagem enviada com sucesso!")
