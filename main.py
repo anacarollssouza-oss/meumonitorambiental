@@ -63,7 +63,7 @@ def analisar_com_gemini(texto_publicacoes):
 
 def enviar_telegram(mensagem):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        raise ValueError("TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não definidos nas Secrets.")
+        raise ValueError("TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não foram encontrados nas Secrets.")
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -71,13 +71,14 @@ def enviar_telegram(mensagem):
         "text": mensagem,
         "disable_web_page_preview": True
     }
+    
     response = requests.post(url, json=payload)
-    if response.status_code != 200:
-        print(f"Erro ao enviar no Telegram: {response.text}")
+    resultado = response.json()
+    
+    print(f"Status do envio ao Telegram: {response.status_code}")
+    print(f"Resposta do Telegram: {resultado}")
+    
+    if not resultado.get("ok"):
+        raise Exception(f"Erro na entrega do Telegram: {resultado.get('description')}")
+        
     return response.status_code
-
-if __name__ == "__main__":
-    dados = buscar_publicacoes_dou()
-    resumo = analisar_com_gemini(dados)
-    enviar_telegram(resumo)
-    print("Automação executada com sucesso!")
