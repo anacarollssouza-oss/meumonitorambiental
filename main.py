@@ -83,7 +83,7 @@ def enviar_telegram(mensagem):
     return response.status_code
 
 if __name__ == "__main__":
-    # Teste de conexão direta
-    mensagem_teste = "🚀 Teste de conexão: A automação do GitHub Actions está funcionando perfeitamente!"
-    enviar_telegram(mensagem_teste)
-    print("Mensagem enviada com sucesso!")
+    dados = buscar_publicacoes_dou()
+    resumo = analisar_com_gemini(dados)
+    enviar_telegram(resumo)
+    print("Automação executada com sucesso!")
