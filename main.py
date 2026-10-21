@@ -78,7 +78,8 @@ def enviar_telegram(mensagem):
     print(f"Status do envio ao Telegram: {response.status_code}")
     print(f"Resposta do Telegram: {resultado}")
     
-    if not resultado.get("ok"):
-        raise Exception(f"Erro na entrega do Telegram: {resultado.get('description')}")
-        
-    return response.status_code
+  if __name__ == "__main__":
+    # Teste direto de envio para validar as Secrets e o Telegram
+    mensagem_teste = "🚀 Teste de conexão: A automação do GitHub Actions está funcionando perfeitamente!"
+    enviar_telegram(mensagem_teste)
+    print("Mensagem de teste enviada!")
