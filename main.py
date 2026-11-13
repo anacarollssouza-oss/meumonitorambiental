@@ -14,15 +14,11 @@ def buscar_publicacoes_mma_hoje():
     # Calcula a data de HOJE no fuso horário de Brasília (UTC-3)
     fuso_brasilia = timezone(timedelta(hours=-3))
     hoje = datetime.now(fuso_brasilia)
-    data_url = hoje.strftime("%d-%m-%Y")      # Ex: 13-11-2026
-    data_exibicao = hoje.strftime("%d/%m/%Y") # Ex: 13/11/2026
+    data_url = hoje.strftime("%d-%m-%Y")      # Formato: 13-11-2026
+    data_exibicao = hoje.strftime("%d/%m/%Y") # Formato: 13/11/2026
 
-    # URL oficial de consulta do DOU filtrada por Seção 1 (do1), data exata de hoje e órgão (MMA)
-    url = (
-        f"https://www.in.gov.br/consulta/-/buscar/dou?"
-        f"q=%22Minist%C3%A9rio+do+Meio+Ambiente+e+Mudan%C3%A7a+do+Clima%22"
-        f"&s=do1&exactDate=personalizado&publishFrom={data_url}&publishTo={data_url}&sortType=0"
-    )
+    # URL oficial da Leitura do Jornal (onde o JSON completo da edição fica embutido)
+    url = f"https://www.in.gov.br/leiturajornal?secao=do1&data={data_url}"
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -34,39 +30,38 @@ def buscar_publicacoes_mma_hoje():
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
+    script_params = soup.find("script", id="params")
+
+    if not script_params or not script_params.string:
+        print("Tag JSON 'params' não encontrada no HTML da edição.")
+        return "", data_exibicao
+
+    dados_edicao = json.loads(script_params.string)
+    itens_json = dados_edicao.get("jsonArray", [])
+    print(f"Total de atos carregados na Seção 1 ({data_exibicao}): {len(itens_json)}")
+
     publicacoes_mma = []
 
-    resultados_html = soup.select("div.resultado")
+    for item in itens_json:
+        hierarquia = item.get("hierarchyStr", "")
+        # Filtra exatamente a seção do Ministério do Meio Ambiente e Mudança do Clima e suas vinculadas (IBAMA, ICMBio, etc.)
+        if "MINISTÉRIO DO MEIO AMBIENTE" in hierarquia.upper():
+            titulo = item.get("title", "Sem título")
+            resumo = item.get("content", "")
+            url_title = item.get("urlTitle", "")
+            pagina = item.get("numberPage", "")
+            edicao = item.get("editionNumber", "")
+            link = f"https://www.in.gov.br/web/dou/-/{url_title}" if url_title else ""
 
-    if resultados_html:
-        for item in resultados_html:
-            titulo_tag = item.select_one("h5.title-marker a") or item.select_one("a")
-            resumo_tag = item.select_one("p.abstract-marker") or item.select_one("p")
-            hierarquia_tag = item.select_one("ol.dou-hierarquia")
+            publicacoes_mma.append(
+                f"Hierarquia: {hierarquia}\n"
+                f"Edição/Página: Edição nº {edicao} - Pág. {pagina}\n"
+                f"Título: {titulo}\n"
+                f"Texto/Resumo: {resumo}\n"
+                f"Link: {link}\n---"
+            )
 
-            titulo = titulo_tag.get_text(strip=True) if titulo_tag else "Sem título"
-            link = titulo_tag["href"] if (titulo_tag and titulo_tag.has_attr("href")) else ""
-            if link and not link.startswith("http"):
-                link = f"https://www.in.gov.br{link}"
-
-            resumo = resumo_tag.get_text(strip=True) if resumo_tag else ""
-            orgao = hierarquia_tag.get_text(" > ", strip=True) if hierarquia_tag else ""
-
-            if "MEIO AMBIENTE" in orgao.upper() or "MEIO AMBIENTE" in titulo.upper() or not orgao:
-                publicacoes_mma.append(
-                    f"Órgão/Hierarquia: {orgao}\nTítulo: {titulo}\nResumo: {resumo}\nLink: {link}\n---"
-                )
-    else:
-        for script in soup.find_all("script", type="application/ld+json"):
-            try:
-                dados_json = json.loads(script.string)
-                if isinstance(dados_json, dict) and "itemListElement" in dados_json:
-                    for el in dados_json["itemListElement"]:
-                        publicacoes_mma.append(str(el))
-            except Exception:
-                continue
-
-    print(f"Total de publicações encontradas para {data_exibicao}: {len(publicacoes_mma)}")
+    print(f"Publicações do MMA filtradas: {len(publicacoes_mma)}")
     return "\n".join(publicacoes_mma), data_exibicao
 
 def analisar_com_gemini(texto_publicacoes, data_str):
@@ -80,17 +75,17 @@ def analisar_com_gemini(texto_publicacoes, data_str):
     
     prompt = f"""
     Você é um consultor técnico sênior em direito e licenciamento ambiental no Brasil.
-    Analise as publicações abaixo extraídas da Seção 1 do Ministério do Meio Ambiente e Mudança do Clima (MMA) no Diário Oficial da União referentes ao dia {data_str}:
+    Analise TODAS as publicações abaixo extraídas da Seção 1 do Ministério do Meio Ambiente e Mudança do Clima (MMA) no Diário Oficial da União referentes ao dia {data_str}:
 
     {texto_publicacoes}
 
-    Sintetize TODAS as portarias, resoluções, decretos, despachos ou instruções normativas encontradas em formato Markdown limpo para leitura no Telegram:
+    Sintetize cada publicação encontrada em formato Markdown limpo para leitura no Telegram:
 
     🏛️ *Síntese DOU - MMA ({data_str})*
 
     Para cada ato normativo/publicação:
-    - 📄 *Norma/Tipo:* [Identificação do ato e secretaria/órgão emissor]
-    - 📌 *O que estabelece / Impacto:* [Resumo claro do conteúdo normativo, diretrizes, prazos ou impactos operacionais]
+    - 📄 *Ato / Órgão:* [Título da Norma e Órgão/Unidade vinculada]
+    - 📌 *Síntese:* [Resumo objetivo do conteúdo e impacto prático/administrativo]
     - 🔗 *Link:* [Link direto da publicação]
     """
 
