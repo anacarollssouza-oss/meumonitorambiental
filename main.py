@@ -44,7 +44,7 @@ def buscar_publicacoes_mma_hoje():
 
     for item in itens_json:
         hierarquia = item.get("hierarchyStr", "")
-        # Filtra exatamente a seção do Ministério do Meio Ambiente e Mudança do Clima e suas vinculadas (IBAMA, ICMBio, etc.)
+        # Filtra exatamente a seção do Ministério do Meio Ambiente e Mudança do Clima e suas vinculadas
         if "MINISTÉRIO DO MEIO AMBIENTE" in hierarquia.upper():
             titulo = item.get("title", "Sem título")
             resumo = item.get("content", "")
@@ -89,7 +89,7 @@ def analisar_com_gemini(texto_publicacoes, data_str):
     - 🔗 *Link:* [Link direto da publicação]
     """
 
-   response = client.models.generate_content(
+    response = client.models.generate_content(
         model="gemini-3.8-flash",
         contents=prompt,
     )
