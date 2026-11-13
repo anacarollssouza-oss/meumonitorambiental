@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
@@ -44,7 +45,6 @@ def buscar_publicacoes_mma_hoje():
 
     for item in itens_json:
         hierarquia = item.get("hierarchyStr", "")
-        # Filtra exatamente a seção do Ministério do Meio Ambiente e Mudança do Clima e suas vinculadas
         if "MINISTÉRIO DO MEIO AMBIENTE" in hierarquia.upper():
             titulo = item.get("title", "Sem título")
             resumo = item.get("content", "")
@@ -89,11 +89,23 @@ def analisar_com_gemini(texto_publicacoes, data_str):
     - 🔗 *Link:* [Link direto da publicação]
     """
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-    )
-    return response.text
+    # Lista de modelos em ordem de prioridade (caso o principal sofra pico de demanda 503)
+    modelos = ["gemini-3.8-flash", "gemini-3.8-flash-lite", "gemini-3.8-pro"]
+
+    for modelo in modelos:
+        for tentativa in range(1, 4):
+            try:
+                print(f"Tentando gerar resumo com {modelo} (tentativa {tentativa})...")
+                response = client.models.generate_content(
+                    model=modelo,
+                    contents=prompt,
+                )
+                return response.text
+            except Exception as e:
+                print(f"Aviso ({modelo} - tentativa {tentativa}): {e}")
+                time.sleep(10)  # Aguarda 10 segundos antes de tentar novamente
+
+    raise RuntimeError("Todos os modelos Gemini estão temporariamente indisponíveis por alta demanda.")
 
 def enviar_telegram(mensagem):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
