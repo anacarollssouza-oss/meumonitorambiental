@@ -89,8 +89,8 @@ def analisar_com_gemini(texto_publicacoes, data_str):
     - 🔗 *Link:* [Link direto da publicação]
     """
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
+   response = client.models.generate_content(
+        model="gemini-3.8-flash",
         contents=prompt,
     )
     return response.text
