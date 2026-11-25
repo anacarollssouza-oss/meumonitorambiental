@@ -14,8 +14,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 def buscar_publicacoes_mma_hoje():
     fuso_brasilia = timezone(timedelta(hours=-3))
     hoje = datetime.now(fuso_brasilia)
-    data_url = hoje.strftime("%d-%m-%Y")      # Ex: 13-11-2026
-    data_exibicao = hoje.strftime("%d/%m/%Y") # Ex: 13/11/2026
+    data_url = hoje.strftime("%d-%m-%Y")
+    data_exibicao = hoje.strftime("%d/%m/%Y")
 
     url = f"https://www.in.gov.br/leiturajornal?secao=do1&data={data_url}"
 
@@ -25,15 +25,28 @@ def buscar_publicacoes_mma_hoje():
         "Accept-Language": "pt-BR,pt;q=0.9"
     }
 
-    response = requests.get(url, headers=headers, timeout=30)
-    response.raise_for_status()
+    response = None
+    # Tenta até 4 vezes com intervalo de 30s caso o portal do DOU dê erro 502/503/504
+    for tentativa in range(1, 5):
+        try:
+            print(f"Consultando portal do DOU para {data_exibicao} (tentativa {tentativa}/4)...")
+            resp = requests.get(url, headers=headers, timeout=35)
+            resp.raise_for_status()
+            response = resp
+            break
+        except requests.exceptions.RequestException as e:
+            print(f"Aviso de instabilidade no portal in.gov.br (tentativa {tentativa}): {e}")
+            if tentativa < 4:
+                time.sleep(30)
+            else:
+                return None, data_exibicao, str(e)
 
     soup = BeautifulSoup(response.text, "html.parser")
     script_params = soup.find("script", id="params")
 
     if not script_params or not script_params.string:
         print("Tag JSON 'params' não encontrada no HTML da edição.")
-        return [], data_exibicao
+        return [], data_exibicao, None
 
     dados_edicao = json.loads(script_params.string)
     itens_json = dados_edicao.get("jsonArray", [])
@@ -60,7 +73,7 @@ def buscar_publicacoes_mma_hoje():
             })
 
     print(f"Publicações do MMA filtradas: {len(publicacoes_mma)}")
-    return publicacoes_mma, data_exibicao
+    return publicacoes_mma, data_exibicao, None
 
 def formatar_fallback_direto(publicacoes, data_str):
     linhas = [f"🏛️ *Boletim DOU - MMA ({data_str})*\n_(Resumo direto do DOU — servidor de IA em alta demanda)_\n"]
@@ -73,7 +86,14 @@ def formatar_fallback_direto(publicacoes, data_str):
         )
     return "\n".join(linhas)
 
-def analisar_com_gemini(publicacoes, data_str):
+def analisar_com_gemini(publicacoes, data_str, erro_portal=None):
+    if erro_portal:
+        return (
+            f"⚠️ *Boletim DOU - MMA ({data_str})*\n\n"
+            f"O portal da Imprensa Nacional (`in.gov.br`) apresentou instabilidade temporária (Erro 502/Servidor indisponível) durante a coleta automática.\n"
+            f"🔗 Consulta direta: https://www.in.gov.br/leiturajornal?secao=do1"
+        )
+
     if not publicacoes:
         return f"📅 *Síntese DOU - MMA ({data_str})*\n\nNão foram encontradas novas publicações do Ministério do Meio Ambiente e Mudança do Clima no DOU de hoje."
     
@@ -103,7 +123,6 @@ def analisar_com_gemini(publicacoes, data_str):
     - 🔗 *Link:* [Link direto da publicação]
     """
 
-    # Descobre dinamicamente os modelos Gemini ativos disponíveis na conta
     modelos_candidatos = ["gemini-3.8-flash"]
     try:
         for m in client.models.list():
@@ -112,8 +131,6 @@ def analisar_com_gemini(publicacoes, data_str):
                 modelos_candidatos.append(nome_limpo)
     except Exception as e:
         print(f"Aviso ao listar modelos: {e}")
-
-    print(f"Modelos válidos identificados para tentativa: {modelos_candidatos}")
 
     for modelo in modelos_candidatos[:3]:
         for tentativa in range(1, 3):
@@ -128,7 +145,6 @@ def analisar_com_gemini(publicacoes, data_str):
                 print(f"Aviso ({modelo} - tentativa {tentativa}): {e}")
                 time.sleep(20)
 
-    # Plano B: se toda a API de IA estiver congestionada (503), envia os dados estruturados do DOU sem falhar
     print("Acionando envio direto estruturado (fallback sem IA)...")
     return formatar_fallback_direto(publicacoes, data_str)
 
@@ -137,26 +153,27 @@ def enviar_telegram(mensagem):
         raise ValueError("TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não definidos nas Secrets.")
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mensagem,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True
-    }
-    response = requests.post(url, json=payload)
-    resultado = response.json()
-    
-    if not resultado.get("ok"):
-        payload.pop("parse_mode", None)
+    partes = [mensagem[i:i+4000] for i in range(0, len(mensagem), 4000)]
+
+    for parte in partes:
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": parte,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
         response = requests.post(url, json=payload)
         resultado = response.json()
-        if not resultado.get("ok"):
-            raise Exception(f"Erro na entrega do Telegram: {resultado.get('description')}")
         
-    return response.status_code
+        if not resultado.get("ok"):
+            payload.pop("parse_mode", None)
+            response = requests.post(url, json=payload)
+            resultado = response.json()
+            if not resultado.get("ok"):
+                raise Exception(f"Erro na entrega do Telegram: {resultado.get('description')}")
 
 if __name__ == "__main__":
-    publicacoes, data_formatada = buscar_publicacoes_mma_hoje()
-    resumo = analisar_com_gemini(publicacoes, data_formatada)
+    publicacoes, data_formatada, erro_portal = buscar_publicacoes_mma_hoje()
+    resumo = analisar_com_gemini(publicacoes, data_formatada, erro_portal=erro_portal)
     enviar_telegram(resumo)
     print("Automação do MMA executada com sucesso!")
